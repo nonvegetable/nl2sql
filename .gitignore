@@ -1,0 +1,32 @@
+# ==========================================
+# NL2SQL SECURITY & ENVIRONMENT IGNORS
+# ==========================================
+
+# 🛑 CRITICAL: Never push your environment variables
+.env
+*.env
+
+# 📂 Vector Database Storage
+# Do not upload the local SQLite database and embedding binaries [cite: 82, 83]
+chroma_db/
+./chroma_db/
+
+# 🐍 Python Virtual Environments
+# Ignore the downloaded packages to save space [cite: 120]
+venv/
+env/
+.venv/
+
+# ⚙️ Python Cache & Bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 💻 OS Specific Files
+.DS_Store
+Thumbs.db
+
+# 📊 App Specific / Cache
+.streamlit/
