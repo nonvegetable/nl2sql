@@ -1,8 +1,8 @@
 """
 Core NL2SQL generation and execution engine.
 Implements a RAG pipeline retrieving schema from ChromaDB, constructing a prompt
-for a local Ollama model, and securely executing the resulting SQL query with
-an agentic self-correction loop.
+for a local Ollama model or Cloud API, and securely executing the resulting SQL 
+query with an agentic self-correction loop.
 """
 
 import os
@@ -23,22 +23,22 @@ READONLY_DATABASE_URL = os.getenv("READONLY_DATABASE_URL")
 if not READONLY_DATABASE_URL:
     raise ValueError("SECURITY AUDIT FAILED: 'READONLY_DATABASE_URL' is missing. Please define it in your .env file.")
 
-engine = create_engine(READONLY_DATABASE_URL)
-
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()
-LLM_MODEL_NAME = os.getenv("LLM_MODEL_NAME", "qwen3:4b")
+default_engine = create_engine(READONLY_DATABASE_URL)
 EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "ollama").lower()
 
-def call_llm(system_prompt: str, user_prompt: str) -> str:
-    """Universal LLM wrapper supporting Ollama, OpenAI, Anthropic, and Gemini."""
-    if LLM_PROVIDER == "openai":
+def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model_name: str = None) -> str:
+    """Universal LLM wrapper supporting Ollama, OpenAI, Anthropic, and Gemini dynamically."""
+    active_provider = (provider or os.getenv("LLM_PROVIDER", "ollama")).lower()
+    active_model = model_name or os.getenv("LLM_MODEL_NAME", "qwen3:4b")
+
+    if active_provider == "openai":
         import openai
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             raise ValueError("Configuration Error: 'OPENAI_API_KEY' is missing in .env for OpenAI provider.")
         client = openai.OpenAI(api_key=api_key)
         response = client.chat.completions.create(
-            model=LLM_MODEL_NAME,
+            model=active_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -46,28 +46,28 @@ def call_llm(system_prompt: str, user_prompt: str) -> str:
         )
         return response.choices[0].message.content.strip()
         
-    elif LLM_PROVIDER == "anthropic":
+    elif active_provider == "anthropic":
         import anthropic
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             raise ValueError("Configuration Error: 'ANTHROPIC_API_KEY' is missing in .env for Anthropic provider.")
         client = anthropic.Anthropic(api_key=api_key)
         response = client.messages.create(
-            model=LLM_MODEL_NAME,
+            model=active_model,
             system=system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
             max_tokens=2048
         )
         return response.content[0].text.strip()
         
-    elif LLM_PROVIDER in ["gemini", "google", "google-genai"]:
+    elif active_provider in ["gemini", "google", "google-genai"]:
         import google.generativeai as genai
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("Configuration Error: 'GEMINI_API_KEY' is missing in .env for Gemini provider.")
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(
-            model_name=LLM_MODEL_NAME,
+            model_name=active_model,
             system_instruction=system_prompt
         )
         response = model.generate_content(user_prompt)
@@ -76,7 +76,7 @@ def call_llm(system_prompt: str, user_prompt: str) -> str:
     else: # Default local Ollama
         import ollama
         response = ollama.chat(
-            model=LLM_MODEL_NAME, 
+            model=active_model, 
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -87,10 +87,8 @@ def call_llm(system_prompt: str, user_prompt: str) -> str:
 # =====================================================================
 # 1. INITIALIZE CHROMADB CLIENT
 # =====================================================================
-# Target the local folder where your synced vectors live
 client = chromadb.PersistentClient(path="./chroma_db")
 
-# Universal Embedding Resolution
 if EMBEDDING_PROVIDER == "openai":
     openai_api_key = os.getenv("OPENAI_API_KEY")
     if not openai_api_key:
@@ -105,65 +103,43 @@ else:
         model_name=os.getenv("EMBEDDING_MODEL_NAME", "mxbai-embed-large")
     )
 
-# Fetch the existing collection populated during your ingestion script
 collection = client.get_collection(
     name="database_schema_metadata", 
     embedding_function=embed_fn
 )
 
 # =====================================================================
-# 2. STEP 2.1: SCHEMA RETRIEVAL FUNCTION
+# 2. SCHEMA RETRIEVAL FUNCTION
 # =====================================================================
 def retrieve_relevant_schemas(user_question: str, n_results: int = 2) -> str:
-    """
-    Queries ChromaDB with the natural language string to find the top N
-    most semantically relevant database table structures.
-    """
-    # Query the collection
-    results = collection.query(
-        query_texts=[user_question],
-        n_results=n_results
-    )
-    
-    # Extract text strings from the retrieved documents list
-    retrieved_docs = results['documents'][0]
-    
-    # Combine the schemas into a clean, single block of text context
-    schema_context = "\n\n".join(retrieved_docs)
-    return schema_context
+    results = collection.query(query_texts=[user_question], n_results=n_results)
+    return "\n\n".join(results['documents'][0])
 
 # =====================================================================
-# 3. STEP 2.2: MASTER PROMPT CONSTRUCTOR & LLM EXECUTION
+# 3. MASTER PROMPT CONSTRUCTOR & SANITIZATION
 # =====================================================================
 def sanitize_sql(raw_llm_response: str) -> str:
     """
     Cleans up the LLM response by stripping out conversational text 
-    and extracting the raw SQL query.
+    and extracting the raw SQL query safely.
     """
-    # 1. Try to extract code from markdown block if present
-    sql_match = re.search(r"```(?:sql|SQL)?\n?(.*?)```", raw_llm_response, re.DOTALL)
+    # Programmatic creation of triple backticks avoids markdown parser breakage
+    triple_ticks = "```"
+    sql_match = re.search(rf"{triple_ticks}(?:sql|SQL)?\n?(.*?){triple_ticks}", raw_llm_response, re.DOTALL)
+    
     if sql_match:
         sql = sql_match.group(1).strip()
     else:
-        # Fallback: Just return the raw text, cleaned up slightly
         sql = raw_llm_response.strip()
     
-    # 2. Programmatically wipe out remaining markdown fences just in case 
-    sql = re.sub(r"^```(?:sql|SQL)?", "", sql, flags=re.IGNORECASE)
-    sql = re.sub(r"```$", "", sql, flags=re.IGNORECASE)
-    
-    # Remove leading/trailing whitespace
+    # Safely clear left-over fences
+    sql = re.sub(rf"^{triple_ticks}(?:sql|SQL)?", "", sql, flags=re.IGNORECASE)
+    sql = re.sub(rf"{triple_ticks}$", "", sql, flags=re.IGNORECASE)
     return sql.strip()
 
-def generate_sql_query(user_question: str) -> str:
-    """
-    Retrieves the context, builds the Master Prompt, and requests the
-    LLM to output the exact SQL query required.
-    """
-    # Step 2.1: Extract only the relevant tables (defaulting to top 2 tables)
+def generate_sql_query(user_question: str, provider: str = None, model_name: str = None) -> str:
     retrieved_schema = retrieve_relevant_schemas(user_question, n_results=2)
     
-    # Step 2.2: Construct the Dialect-Specific Master Prompt Template
     system_role = """
 You are an expert PostgreSQL analyst. Your sole purpose is to output valid, optimized, and executable PostgreSQL queries.
 CRITICAL CONSTRAINTS:
@@ -180,40 +156,23 @@ Translate this user question into a valid, optimized, and executable PostgreSQL 
 {user_question}
     """.strip()
 
-    print("\n--- [DEBUG: System Prompt Sent to LLM] ---")
-    print(system_role)
-    print("\n--- [DEBUG: User Prompt Sent to LLM] ---")
-    print(user_message)
-    print("-------------------------------------------\n")
-
-    # Call the universal LLM router
-    raw_response = call_llm(system_role, user_message)
-    
-    # Apply programmatic regex sanitizer to remove unwanted markdown fences or conversational text
+    raw_response = call_llm(system_role, user_message, provider=provider, model_name=model_name)
     return sanitize_sql(raw_response)
 
 # =====================================================================
-# 4. STEP 3: SECURE EXECUTION & SELF-CORRECTION
+# 4. SECURE EXECUTION & SELF-CORRECTION LOOP
 # =====================================================================
-def execute_sql_with_self_correction(user_question: str, max_retries: int = 3):
-    print(f"\nUser Prompt: '{user_question}'")
-    generated_sql = generate_sql_query(user_question)
-    
-    print("--- [Initial Generated SQL Output] ---")
-    print(generated_sql)
-    print("--------------------------------------")
+def execute_sql_with_self_correction(user_question: str, max_retries: int = 3, db_url: str = None, provider: str = None, model_name: str = None):
+    """Generates and securely runs query with dynamic model overrides and target connection pools."""
+    generated_sql = generate_sql_query(user_question, provider=provider, model_name=model_name)
+    active_engine = create_engine(db_url) if db_url else default_engine
     
     for attempt in range(max_retries):
         try:
-            with engine.connect() as connection:
-                print(f"Attempting to execute SQL... (Attempt {attempt + 1}/{max_retries})")
+            with active_engine.connect() as connection:
                 result = connection.execute(text(generated_sql))
                 rows = result.fetchall()
                 
-                print("\n🎉 SQL Executed Successfully!")
-                print(f"Rows returned: {len(rows)}")
-                
-                # Format results for readability
                 if len(rows) > 0:
                     column_names = list(result.keys())
                     return {"sql": generated_sql, "results": [dict(zip(column_names, row)) for row in rows]}
@@ -221,15 +180,9 @@ def execute_sql_with_self_correction(user_question: str, max_retries: int = 3):
                 
         except ProgrammingError as e:
             error_msg = str(e)
-            print(f"\n[⚠️ SQL Execution Error] {error_msg}")
-            
             if attempt == max_retries - 1:
-                print("🚨 Max retries reached. Failing gracefully.")
                 return {"sql": generated_sql, "error": error_msg}
                 
-            print("Auto-patching SQL via LLM...")
-            
-            # Agentic Self-Correction Loop
             fix_prompt = f"""
 The following PostgreSQL query contains an error. 
 Query: {generated_sql}
@@ -239,17 +192,8 @@ Please fix the query so it is valid PostgreSQL syntax. Return ONLY the raw SQL c
             """.strip()
 
             system_fix_role = "You are an expert PostgreSQL analyst. Output only the fixed, valid SQL query without markdown or explanations."
-            raw_response = call_llm(system_fix_role, fix_prompt)
-            
+            raw_response = call_llm(system_fix_role, fix_prompt, provider=provider, model_name=model_name)
             generated_sql = sanitize_sql(raw_response)
-            print(f"---\n[Patched SQL Output]\n{generated_sql}\n---")
-
-# =====================================================================
-# 5. RUN A LIVE TEST CASE
-# =====================================================================
-if __name__ == "__main__":
-    sample_query = "Show me the total sales for clothing items last quarter."
-    final_output = execute_sql_with_self_correction(sample_query)
-    
-    print("\n=== FINAL RESULT ===")
-    print(final_output)
+        except Exception as e:
+            # Fallback for connection-level or general python driver issues
+            return {"sql": generated_sql, "error": str(e)}
