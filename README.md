@@ -1,74 +1,118 @@
-# NL2SQL Enterprise Dashboard
+# Natural Language to SQL (NL2SQL) Engine with Self-Correction
 
-Next-Gen Database Intelligence. Ask your database questions in natural language and get instantaneous visualization, with support for local and cloud-based Large Language Models.
+A robust, database-agnostic data pipeline that translates natural language questions into executable SQL queries, runs them against a database, and visualizes the results. Built with an agentic self-correction loop, the system automatically catches SQL syntax or execution errors, passes them back to the LLM with the schema context, and repairs the query before rendering the final dashboard.
 
-## Overview
-This project is an end-to-end Natural Language to SQL (NL2SQL) pipeline. It leverages a model-agnostic LLM interface (supporting Ollama, OpenAI, Anthropic, and Google Gemini) and a ChromaDB semantic search layer to generate accurate, dialect-specific PostgreSQL queries. The queries are safely executed against a read-only database connection, and the results are automatically charted on an interactive Streamlit dashboard.
+---
 
-## Architecture
-1. **User Input:** User submits a natural language question via the Streamlit UI.
-2. **Schema Retrieval (RAG):** The prompt is embedded (via OpenAI or Ollama embeddings) and queried against ChromaDB to find the most semantically relevant database tables and structural constraints.
-3. **LLM Generation:** The context and query are piped through to the configured LLM provider via a universal wrapper, separating instructions into system rules and user data.
-4. **Read-Only Execution & Agentic Auto-Fix:** The generated PostgreSQL is piped through a strictly read-only SQLAlchemy engine. If a SQL syntax error (`ProgrammingError`) occurs, the error is caught and sent back to the LLM to dynamically self-correct up to 3 times.
-5. **Intelligent UI Mapping:** The returned dataframe is processed intuitively by the frontend, automatically mapping it to key metrics, pie charts, bar graphs, scatter plots, or time-series curves using Plotly.
+## Architecture & Features
 
-## Installation & Setup
+- **Multi-Container Infrastructure:** Orchestrated with Docker Compose to cleanly separate the application tier from the data tier.
+- **Database-Agnostic Design:** Boots instantly as a stateless service. Users can dynamically connect their own databases via the UI sidebar, or rely on the pre-configured production pipeline.
+- **Agentic Self-Correction Loop:** If the database engine returns an execution error, the pipeline catches the exception, pairs it with the structural DDL schema, and prompts the LLM for an automated correction.
+- **Security-First Execution:** Implements strict read-only user database connections to natively prevent SQL injection or destructive (`DROP`, `DELETE`, `UPDATE`) commands.
+- **Semantic Schema Routing:** Utilizes ChromaDB as a vector database to index and fetch relevant database metadata, reducing context window bloat for large schemas.
 
-### 1. Prerequisites
-- Python 3.10+
-- PostgreSQL database
-- (Optional) Ollama installed locally, or API keys for OpenAI, Anthropic, or Google Gemini.
+---
 
-### 2. Pull Local Models (If using Ollama)
-If you are using the default local setup, download the necessary embedding and generation models into your local Ollama instance:
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend / UI | Streamlit |
+| LLM Orchestration | Python, LangChain, OpenAI API |
+| Vector Database | ChromaDB |
+| Relational Database | PostgreSQL |
+| Containerization | Docker & Docker Compose |
+
+---
+
+## Quick Start (Docker Deployment)
+
+The fastest way to spin up the entire application, database, and vector store environment is using Docker.
+
+### Prerequisites
+
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
+- An OpenAI API Key.
+
+### Setup
+
+**1. Clone the repository:**
+
 ```bash
-# Embedding Model (used by ChromaDB)
-ollama pull mxbai-embed-large
-
-# Generation Model (used for SQL Translation)
-ollama pull qwen3:4b
-```
-
-### 3. Clone and Install Dependencies
-```bash
-git clone https://github.com/your-username/nl2sql.git
+git clone https://github.com/nonvegetable/nl2sql.git
 cd nl2sql
-
-# Create and activate virtual environment (optional but recommended)
-python -m venv venv
-source venv/bin/activate  # On Windows use `venv\Scripts\activate`
-
-# Install requirements
-pip install -r requirements.txt
 ```
 
-### 4. Configure Environment Variables
-Copy the example environment file and configure it:
+**2. Configure your environment variables:**
+
+Duplicate the example environment file and add your credentials:
+
 ```bash
 cp .env.example .env
 ```
-Open `.env` and fill in your actual database credentials and LLM configurations. 
-Make sure `READONLY_DATABASE_URL` is tied to a user restricted strictly to `SELECT` permissions to prevent injection or corruption.
 
-You can configure the active LLM and embedding providers by adding the following variables to `.env`:
-```ini
-LLM_PROVIDER="openai" # Options: ollama, openai, anthropic, gemini
-LLM_MODEL_NAME="gpt-4o"
-EMBEDDING_PROVIDER="openai" # Options: ollama, openai
-OPENAI_API_KEY="your-api-key"
-# ANTHROPIC_API_KEY="your-api-key"
-# GEMINI_API_KEY="your-api-key"
+Open `.env` and insert your API key:
+
+```
+OPENAI_API_KEY=your_actual_openai_api_key_here
 ```
 
-### 5. Sync the Semantic Schema
-Run the script to inspect your live PostgreSQL database and sync its structure into the local ChromaDB vector store:
+> Note: `READONLY_DATABASE_URL` is automatically managed inside the Docker network by Docker Compose.
+
+**3. Launch the platform:**
+
+```bash
+docker-compose up --build
+```
+
+**4. Access the application:**
+
+Once the build completes and all containers are running, open:
+
+```
+http://localhost:8501
+```
+
+---
+
+## Local Development (Without Docker)
+
+To run the application directly on your machine using a virtual environment:
+
+**1. Create and activate a virtual environment:**
+
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+**2. Install dependencies:**
+
+```bash
+pip install -r requirements.txt
+```
+
+**3. Synchronize the schema vectors:**
+
+Ensure your local database credentials are set in `.env`, then initialize the semantic vector store:
+
 ```bash
 python sync_schema.py
 ```
 
-### 6. Launch the Dashboard
-Run the Streamlit application:
+**4. Run the app:**
+
 ```bash
-python -m streamlit run app.py
+streamlit run app.py
 ```
-Open your browser to `http://localhost:8501` to start querying.
+
+---
+
+## Security & Guardrails
+
+This project treats database access with strict enterprise guardrails:
+
+**Network Isolation:** The PostgreSQL database container only exposes its port internally to the application network layer unless explicitly configured otherwise.
+
+**Principle of Least Privilege:** The application container connects using a designated `readonly_user` profile, ensuring malicious or accidental modifications to data are structurally blocked at the engine layer.
