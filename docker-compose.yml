@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  # The PostgreSQL Database Container
+  db:
+    image: postgres:15-alpine
+    container_name: nl2sql_postgres
+    environment:
+      POSTGRES_USER: readonly_user
+      POSTGRES_PASSWORD: readonly_password
+      POSTGRES_DB: your_db
+    ports:
+      - "5432:5432"
+    volumes:
+      # This ensures database tables survive a restart
+      - postgres_data:/var/lib/postgresql/data
+
+  # Your Streamlit Application Container
+  app:
+    build: .
+    container_name: nl2sql_app
+    ports:
+      - "8501:8501"
+    environment:
+      # We override the localhost URL to point to the 'db' container
+      - READONLY_DATABASE_URL=postgresql+psycopg2://readonly_user:readonly_password@db:5432/your_db
+      - LLM_PROVIDER=openai
+      - LLM_MODEL_NAME=gpt-4o
+    volumes:
+      # The Volume mapping to save ChromaDB to your local hard drive
+      - ./chroma_db:/app/chroma_db
+    depends_on:
+      - db
+
+volumes:
+  postgres_data:
