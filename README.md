@@ -1,118 +1,273 @@
-# Natural Language to SQL (NL2SQL) Engine with Self-Correction
+# NL2SQL Enterprise Engine (with Agentic Self-Correction)
 
-A robust, database-agnostic data pipeline that translates natural language questions into executable SQL queries, runs them against a database, and visualizes the results. Built with an agentic self-correction loop, the system automatically catches SQL syntax or execution errors, passes them back to the LLM with the schema context, and repairs the query before rendering the final dashboard.
+A robust, database-agnostic data pipeline that translates natural language questions into executable SQL queries, runs them securely against a relational database, and automatically visualizes the results.
 
----
-
-## Architecture & Features
-
-- **Multi-Container Infrastructure:** Orchestrated with Docker Compose to cleanly separate the application tier from the data tier.
-- **Database-Agnostic Design:** Boots instantly as a stateless service. Users can dynamically connect their own databases via the UI sidebar, or rely on the pre-configured production pipeline.
-- **Agentic Self-Correction Loop:** If the database engine returns an execution error, the pipeline catches the exception, pairs it with the structural DDL schema, and prompts the LLM for an automated correction.
-- **Security-First Execution:** Implements strict read-only user database connections to natively prevent SQL injection or destructive (`DROP`, `DELETE`, `UPDATE`) commands.
-- **Semantic Schema Routing:** Utilizes ChromaDB as a vector database to index and fetch relevant database metadata, reducing context window bloat for large schemas.
+This project is designed to be **model-agnostic** and **database-agnostic**. You can run it entirely locally for free using Ollama or plug in commercial LLM providers such as OpenAI, Anthropic (Claude), and Gemini. The application supports both the built-in mock PostgreSQL database and your own PostgreSQL/MySQL databases, whether hosted locally or remotely.
 
 ---
 
-## Tech Stack
+# Features
 
-| Layer | Technology |
-|---|---|
-| Frontend / UI | Streamlit |
-| LLM Orchestration | Python, LangChain, OpenAI API |
-| Vector Database | ChromaDB |
-| Relational Database | PostgreSQL |
-| Containerization | Docker & Docker Compose |
+## Multi-LLM Routing
+
+Instantly switch between local AI models (via Ollama) and cloud providers (OpenAI, Claude, Gemini) directly from the dashboard.
+
+## Agentic Self-Correction Loop
+
+If the LLM generates invalid SQL, the backend automatically:
+
+1. Executes the query safely.
+2. Catches any SQL exceptions.
+3. Extracts the error message.
+4. Sends the error back to the LLM.
+5. Generates a corrected SQL query.
+6. Retries execution automatically.
+
+This significantly improves reliability while reducing manual intervention.
+
+## Dynamic Schema Vectorization
+
+The application uses **ChromaDB** to semantically index your database schema.
+
+Instead of exposing the entire schema to the LLM, only the most relevant tables and columns are retrieved based on the user's question, which:
+
+* Reduces token usage
+* Improves SQL accuracy
+* Minimizes hallucinations
+* Scales to enterprise-sized databases
+
+## Bring Your Own Database (BYOD)
+
+Connect to any PostgreSQL or MySQL database (local or remote) directly from the Streamlit UI without modifying the source code.
 
 ---
 
-## Quick Start (Docker Deployment)
+# Getting Started (Docker Deployment)
 
-The fastest way to spin up the entire application, database, and vector store environment is using Docker.
+The easiest and most reliable way to run the project is with Docker.
 
-### Prerequisites
+The included `docker-compose.yml` starts:
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
-- An OpenAI API Key.
+* Streamlit frontend
+* Python backend
+* PostgreSQL sandbox database
 
-### Setup
+## Prerequisites
 
-**1. Clone the repository:**
+* Docker Desktop installed and running
+* *(Optional but recommended)* Ollama installed if you want to run everything locally without API costs
+
+---
+
+## Step 1 — Clone the Repository
 
 ```bash
-git clone https://github.com/nonvegetable/nl2sql.git
+git clone https://github.com/yourusername/nl2sql.git
 cd nl2sql
 ```
 
-**2. Configure your environment variables:**
+---
 
-Duplicate the example environment file and add your credentials:
+## Step 2 — Configure Environment Variables
+
+Duplicate the example environment file:
 
 ```bash
 cp .env.example .env
 ```
 
-Open `.env` and insert your API key:
+Open `.env` and configure your providers.
 
+### Cloud Models
+
+Add one or more API keys:
+
+```text
+OPENAI_API_KEY=
+ANTHROPIC_API_KEY=
+GEMINI_API_KEY=
 ```
-OPENAI_API_KEY=your_actual_openai_api_key_here
+
+### Local Ollama (Default)
+
+No API keys are required.
+
+Ensure the following values are set:
+
+```text
+LLM_PROVIDER=ollama
+EMBEDDING_PROVIDER=ollama
 ```
 
-> Note: `READONLY_DATABASE_URL` is automatically managed inside the Docker network by Docker Compose.
+---
 
-**3. Launch the platform:**
+## Step 3 — Install Local Models (Ollama Users)
+
+Pull the language model used for SQL generation:
+
+```bash
+ollama pull qwen3:4b
+```
+
+Pull the embedding model used for schema vectorization:
+
+```bash
+ollama pull mxbai-embed-large
+```
+
+---
+
+## Step 4 — Launch the Application
+
+Build and start the containers:
 
 ```bash
 docker-compose up --build
 ```
 
-**4. Access the application:**
+Once everything starts successfully, open:
 
-Once the build completes and all containers are running, open:
-
-```
+```text
 http://localhost:8501
 ```
 
 ---
 
-## Local Development (Without Docker)
+# Using Your Own Database
 
-To run the application directly on your machine using a virtual environment:
+By default, Docker connects to the included PostgreSQL sandbox.
 
-**1. Create and activate a virtual environment:**
+You can instead connect to your own database hosted:
 
-```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
+* Locally
+* AWS RDS
+* Neon
+* Supabase
+* DigitalOcean
+* Azure
+* Google Cloud SQL
+* Any VPS
 
-**2. Install dependencies:**
-
-```bash
-pip install -r requirements.txt
-```
-
-**3. Synchronize the schema vectors:**
-
-Ensure your local database credentials are set in `.env`, then initialize the semantic vector store:
-
-```bash
-python sync_schema.py
-```
-
-**4. Run the app:**
-
-```bash
-streamlit run app.py
-```
+The backend uses **SQLAlchemy** with the appropriate database driver (e.g., `psycopg2`) to establish a secure TCP/IP connection.
 
 ---
 
-## Security & Guardrails
+## 1. Configure Network Access
 
-This project treats database access with strict enterprise guardrails:
+For remote databases:
 
-**Network Isolation:** The PostgreSQL database container only exposes its port internally to the application network layer unless explicitly configured otherwise.
+* Allow incoming connections from the machine running this application.
+* Whitelist the IP address in your firewall or cloud security group.
+* If SSL is required, append:
 
-**Principle of Least Privilege:** The application container connects using a designated `readonly_user` profile, ensuring malicious or accidental modifications to data are structurally blocked at the engine layer.
+```text
+?sslmode=require
+```
+
+to your PostgreSQL connection string.
+
+---
+
+## 2. Connect Through the Dashboard
+
+Open the Streamlit sidebar and select:
+
+```
+Database Connection
+→ Manual Configuration
+```
+
+Enter:
+
+* Host
+* Port (5432 for PostgreSQL)
+* Username
+* Password
+* Database Name
+
+---
+
+## 3. Sync the Database Schema
+
+Click:
+
+```
+Sync Schema to Vector DB
+```
+
+The application will:
+
+1. Connect to your database.
+2. Extract tables, columns, and relationships.
+3. Generate embeddings using your configured embedding provider.
+4. Store those embeddings inside ChromaDB.
+
+This step enables semantic schema retrieval for accurate SQL generation.
+
+---
+
+## 4. Ask Questions
+
+Once synchronization completes, simply ask questions such as:
+
+> Show me total revenue grouped by payment types for last month.
+
+The engine will:
+
+1. Retrieve the relevant schema context.
+2. Generate SQL.
+3. Execute it safely.
+4. Automatically repair invalid SQL if needed.
+5. Display both the results and visualizations.
+
+---
+
+# Security & Guardrails
+
+## Read-Only Database Access
+
+Always connect using database credentials that have **SELECT-only permissions**.
+
+Never provide administrator credentials.
+
+---
+
+## Automatic Error Recovery
+
+If an invalid SQL statement is generated:
+
+* The database rejects it.
+* The backend captures the exception.
+* The LLM receives the error details.
+* A corrected query is generated automatically.
+* The corrected query is executed.
+
+The application continues running without crashing.
+
+---
+
+## Protection Against Destructive Queries
+
+Queries such as:
+
+* `DROP`
+* `DELETE`
+* `UPDATE`
+* `ALTER`
+
+should never succeed when using properly configured read-only credentials.
+
+Even if the LLM generates a destructive query, the database blocks execution, the backend logs the failure, and the application remains safe.
+
+---
+
+# Tech Stack
+
+* **Frontend:** Streamlit
+* **Backend:** Python
+* **Database Connectivity:** SQLAlchemy
+* **Vector Database:** ChromaDB
+* **Embeddings:** Ollama / OpenAI / Gemini
+* **LLMs:** Ollama, OpenAI, Claude, Gemini
+* **Database Support:** PostgreSQL, MySQL
+* **Containerization:** Docker & Docker Compose
