@@ -20,10 +20,10 @@ from sqlalchemy.exc import ProgrammingError
 load_dotenv()
 READONLY_DATABASE_URL = os.getenv("READONLY_DATABASE_URL")
 
-if not READONLY_DATABASE_URL:
-    raise ValueError("SECURITY AUDIT FAILED: 'READONLY_DATABASE_URL' is missing. Please define it in your .env file.")
-
-default_engine = create_engine(READONLY_DATABASE_URL)
+# Only create the default engine if the URL exists at boot
+default_engine = None
+if READONLY_DATABASE_URL:
+    default_engine = create_engine(READONLY_DATABASE_URL)
 EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "ollama").lower()
 
 def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model_name: str = None) -> str:
