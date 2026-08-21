@@ -1,18 +1,18 @@
 """
 Core NL2SQL generation and execution engine.
 Implements a RAG pipeline retrieving schema from ChromaDB, constructing a prompt
-for a local Ollama model or Cloud API, and securely executing the resulting SQL 
-query with an agentic self-correction loop.
+for a local LM Studio / Ollama model or Cloud API, and securely executing the
+resulting SQL query with an agentic self-correction loop.
 """
 
 import os
 import re
 
-import chromadb
-from chromadb.utils import embedding_functions
 from dotenv import load_dotenv
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import ProgrammingError
+
+from providers import call_llm, open_schema_collection
 
 # =====================================================================
 # 0. INITIALIZE CONFIGURATION & DATABASE
@@ -24,99 +24,17 @@ READONLY_DATABASE_URL = os.getenv("READONLY_DATABASE_URL")
 default_engine = None
 if READONLY_DATABASE_URL:
     default_engine = create_engine(READONLY_DATABASE_URL)
-EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "ollama").lower()
-
-def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model_name: str = None) -> str:
-    """Universal LLM wrapper supporting Ollama, OpenAI, Anthropic, and Gemini dynamically."""
-    active_provider = (provider or os.getenv("LLM_PROVIDER", "ollama")).lower()
-    active_model = model_name or os.getenv("LLM_MODEL_NAME", "qwen3:4b")
-
-    if active_provider == "openai":
-        import openai
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise ValueError("Configuration Error: 'OPENAI_API_KEY' is missing in .env for OpenAI provider.")
-        client = openai.OpenAI(api_key=api_key)
-        response = client.chat.completions.create(
-            model=active_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
-        )
-        return response.choices[0].message.content.strip()
-        
-    elif active_provider == "anthropic":
-        import anthropic
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise ValueError("Configuration Error: 'ANTHROPIC_API_KEY' is missing in .env for Anthropic provider.")
-        client = anthropic.Anthropic(api_key=api_key)
-        response = client.messages.create(
-            model=active_model,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-            max_tokens=2048
-        )
-        return response.content[0].text.strip()
-        
-    elif active_provider in ["gemini", "google", "google-genai"]:
-        import google.generativeai as genai
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError("Configuration Error: 'GEMINI_API_KEY' is missing in .env for Gemini provider.")
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(
-            model_name=active_model,
-            system_instruction=system_prompt
-        )
-        response = model.generate_content(user_prompt)
-        return response.text.strip()
-        
-    else: # Default local Ollama
-        import ollama
-        response = ollama.chat(
-            model=active_model, 
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
-        )
-        return response['message']['content'].strip()
 
 # =====================================================================
-# 1. INITIALIZE CHROMADB CLIENT
-# =====================================================================
-client = chromadb.PersistentClient(path="./chroma_db")
-
-if EMBEDDING_PROVIDER == "openai":
-    openai_api_key = os.getenv("OPENAI_API_KEY")
-    if not openai_api_key:
-         raise ValueError("Configuration Error: 'OPENAI_API_KEY' is missing in .env for OpenAI embeddings.")
-    embed_fn = embedding_functions.OpenAIEmbeddingFunction(
-        api_key=openai_api_key,
-        model_name=os.getenv("EMBEDDING_MODEL_NAME", "text-embedding-3-small")
-    )
-else:
-    embed_fn = embedding_functions.OllamaEmbeddingFunction(
-        url=os.getenv("OLLAMA_URL", "http://localhost:11434/api/embeddings"),
-        model_name=os.getenv("EMBEDDING_MODEL_NAME", "mxbai-embed-large")
-    )
-
-collection = client.get_collection(
-    name="database_schema_metadata", 
-    embedding_function=embed_fn
-)
-
-# =====================================================================
-# 2. SCHEMA RETRIEVAL FUNCTION
+# 1. SCHEMA RETRIEVAL FUNCTION
 # =====================================================================
 def retrieve_relevant_schemas(user_question: str, n_results: int = 2) -> str:
+    collection = open_schema_collection()
     results = collection.query(query_texts=[user_question], n_results=n_results)
     return "\n\n".join(results['documents'][0])
 
 # =====================================================================
-# 3. MASTER PROMPT CONSTRUCTOR & SANITIZATION
+# 2. MASTER PROMPT CONSTRUCTOR & SANITIZATION
 # =====================================================================
 def sanitize_sql(raw_llm_response: str) -> str:
     """
@@ -137,7 +55,7 @@ def sanitize_sql(raw_llm_response: str) -> str:
     sql = re.sub(rf"{triple_ticks}$", "", sql, flags=re.IGNORECASE)
     return sql.strip()
 
-def generate_sql_query(user_question: str, provider: str = None, model_name: str = None) -> str:
+def generate_sql_query(user_question: str, provider: str = None, model_name: str = None, api_key: str = None) -> str:
     retrieved_schema = retrieve_relevant_schemas(user_question, n_results=2)
     
     system_role = """
@@ -156,15 +74,15 @@ Translate this user question into a valid, optimized, and executable PostgreSQL 
 {user_question}
     """.strip()
 
-    raw_response = call_llm(system_role, user_message, provider=provider, model_name=model_name)
+    raw_response = call_llm(system_role, user_message, provider=provider, model_name=model_name, api_key=api_key)
     return sanitize_sql(raw_response)
 
 # =====================================================================
-# 4. SECURE EXECUTION & SELF-CORRECTION LOOP
+# 3. SECURE EXECUTION & SELF-CORRECTION LOOP
 # =====================================================================
-def execute_sql_with_self_correction(user_question: str, max_retries: int = 3, db_url: str = None, provider: str = None, model_name: str = None):
+def execute_sql_with_self_correction(user_question: str, max_retries: int = 3, db_url: str = None, provider: str = None, model_name: str = None, api_key: str = None):
     """Generates and securely runs query with dynamic model overrides and target connection pools."""
-    generated_sql = generate_sql_query(user_question, provider=provider, model_name=model_name)
+    generated_sql = generate_sql_query(user_question, provider=provider, model_name=model_name, api_key=api_key)
     active_engine = create_engine(db_url) if db_url else default_engine
     
     for attempt in range(max_retries):
@@ -192,7 +110,7 @@ Please fix the query so it is valid PostgreSQL syntax. Return ONLY the raw SQL c
             """.strip()
 
             system_fix_role = "You are an expert PostgreSQL analyst. Output only the fixed, valid SQL query without markdown or explanations."
-            raw_response = call_llm(system_fix_role, fix_prompt, provider=provider, model_name=model_name)
+            raw_response = call_llm(system_fix_role, fix_prompt, provider=provider, model_name=model_name, api_key=api_key)
             generated_sql = sanitize_sql(raw_response)
         except Exception as e:
             # Fallback for connection-level or general python driver issues

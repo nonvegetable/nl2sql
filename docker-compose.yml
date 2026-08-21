@@ -24,8 +24,13 @@ services:
     environment:
       # We override the localhost URL to point to the 'db' container
       - READONLY_DATABASE_URL=postgresql+psycopg2://readonly_user:readonly_password@db:5432/your_db
-      - LLM_PROVIDER=openai
-      - LLM_MODEL_NAME=gpt-4o
+      - LLM_PROVIDER=lmstudio
+      - LM_STUDIO_BASE_URL=http://host.docker.internal:1234/v1
+      - EMBEDDING_PROVIDER=lmstudio
+      - EMBEDDING_MODEL_NAME=text-embedding-nomic-embed-text-v1.5
+    extra_hosts:
+      # Lets the container reach LM Studio running on the Linux host
+      - "host.docker.internal:host-gateway"
     volumes:
       # The Volume mapping to save ChromaDB to your local hard drive
       - ./chroma_db:/app/chroma_db

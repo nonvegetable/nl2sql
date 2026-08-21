@@ -2,7 +2,7 @@
 
 A robust, database-agnostic data pipeline that translates natural language questions into executable SQL queries, runs them securely against a relational database, and automatically visualizes the results.
 
-This project is designed to be **model-agnostic** and **database-agnostic**. You can run it entirely locally for free using Ollama or plug in commercial LLM providers such as OpenAI, Anthropic (Claude), and Gemini. The application supports both the built-in mock PostgreSQL database and your own PostgreSQL/MySQL databases, whether hosted locally or remotely.
+This project is designed to be **model-agnostic** and **database-agnostic**. The default local stack is **LM Studio** (OpenAI-compatible API on `localhost:1234`). Ollama, OpenAI, Anthropic (Claude), and Gemini remain fully supported. The application supports both the built-in mock PostgreSQL database and your own PostgreSQL/MySQL databases, whether hosted locally or remotely.
 
 ---
 
@@ -10,7 +10,7 @@ This project is designed to be **model-agnostic** and **database-agnostic**. You
 
 ## Multi-LLM Routing
 
-Instantly switch between local AI models (via Ollama) and cloud providers (OpenAI, Claude, Gemini) directly from the dashboard.
+Instantly switch between local AI models (LM Studio by default, or Ollama) and cloud providers (OpenAI, Claude, Gemini) directly from the dashboard. Local runtimes list the models actually available on the machine. Cloud providers ask for an API key, then list that account's chat models so you can pick one.
 
 ## Agentic Self-Correction Loop
 
@@ -55,7 +55,8 @@ The included `docker-compose.yml` starts:
 ## Prerequisites
 
 * Docker Desktop installed and running
-* *(Optional but recommended)* Ollama installed if you want to run everything locally without API costs
+* **LM Studio** installed and serving a local model (default for this project)
+* *(Optional)* Ollama, if you prefer that local runtime instead of LM Studio
 
 ---
 
@@ -80,7 +81,7 @@ Open `.env` and configure your providers.
 
 ### Cloud Models
 
-Add one or more API keys:
+You can paste an API key in the Streamlit sidebar when you select OpenAI, Claude (Anthropic), or Gemini. The dashboard then lists chat models for that key and asks which one to use. Keys stay in the current session unless you also put them in `.env`:
 
 ```text
 OPENAI_API_KEY=
@@ -88,36 +89,51 @@ ANTHROPIC_API_KEY=
 GEMINI_API_KEY=
 ```
 
-### Local Ollama (Default)
+### Local LM Studio (Default)
 
-No API keys are required.
+No API keys are required. Start the local server and load any chat model you already have installed:
+
+```bash
+lms server start
+lms load google/gemma-4-e2b
+```
+
+The dashboard queries port 1234 and uses **whatever chat model is currently loaded**. If nothing is loaded, it shows an error telling you to load one. Embedding models (like nomic-embed) are not listed as generation models.
 
 Ensure the following values are set:
 
 ```text
+LLM_PROVIDER=lmstudio
+LM_STUDIO_BASE_URL=http://localhost:1234/v1
+EMBEDDING_PROVIDER=lmstudio
+EMBEDDING_MODEL_NAME=text-embedding-nomic-embed-text-v1.5
+```
+
+`LLM_MODEL_NAME` is optional. If you set it, it is only used when that model is already loaded; otherwise the loaded model on port 1234 is used.
+
+Schema embeddings use LM Studio's bundled **nomic-embed-text-v1.5**. After switching from Ollama embeddings, re-run **Sync Schema to Vector DB** so Chroma is rebuilt with the new embedding space.
+
+### Local Ollama (optional)
+
+Switch the provider to **Ollama** in the sidebar. The dashboard queries `http://localhost:11434` (or `OLLAMA_HOST`) and asks which pulled chat model to use. If Ollama is not running, or no chat model is pulled, it shows an error telling you what to do:
+
+```bash
+ollama serve
+ollama pull llama3.2
+```
+
+Optional `.env` values:
+
+```text
 LLM_PROVIDER=ollama
+OLLAMA_HOST=http://localhost:11434
 EMBEDDING_PROVIDER=ollama
+EMBEDDING_MODEL_NAME=mxbai-embed-large
 ```
 
 ---
 
-## Step 3 — Install Local Models (Ollama Users)
-
-Pull the language model used for SQL generation:
-
-```bash
-ollama pull qwen3:4b
-```
-
-Pull the embedding model used for schema vectorization:
-
-```bash
-ollama pull mxbai-embed-large
-```
-
----
-
-## Step 4 — Launch the Application
+## Step 3 — Launch the Application
 
 Build and start the containers:
 
@@ -267,7 +283,7 @@ Even if the LLM generates a destructive query, the database blocks execution, th
 * **Backend:** Python
 * **Database Connectivity:** SQLAlchemy
 * **Vector Database:** ChromaDB
-* **Embeddings:** Ollama / OpenAI / Gemini
-* **LLMs:** Ollama, OpenAI, Claude, Gemini
+* **Embeddings:** LM Studio / Ollama / OpenAI
+* **LLMs:** LM Studio, Ollama, OpenAI, Claude, Gemini
 * **Database Support:** PostgreSQL, MySQL
 * **Containerization:** Docker & Docker Compose

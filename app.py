@@ -10,10 +10,167 @@ import plotly.express as px
 import streamlit as st
 
 from generate_sql import execute_sql_with_self_correction
+from providers import (
+    api_key_env_name,
+    get_lm_studio_loaded_llm_models,
+    get_ollama_llm_models,
+    list_cloud_chat_models,
+    lm_studio_no_model_message,
+    lm_studio_origin,
+    missing_api_key_message,
+    ollama_no_model_message,
+    ollama_origin,
+    ollama_unreachable_message,
+)
 from sync_schema import sync_database_schema
 from dotenv import load_dotenv
 
 load_dotenv()
+
+CLOUD_PROVIDERS = {"OPENAI", "ANTHROPIC", "GEMINI"}
+CUSTOM_MODEL_SENTINEL = "Custom model id…"
+PROVIDER_DISPLAY = {
+    "LMSTUDIO": "LM Studio",
+    "OLLAMA": "Ollama",
+    "OPENAI": "OpenAI",
+    "ANTHROPIC": "Claude (Anthropic)",
+    "GEMINI": "Gemini",
+}
+
+
+def _select_model(model_options, env_model, allow_custom=False, widget_ns="model"):
+    """Ask which generation model to use from a discovered list."""
+    if model_options:
+        options = list(model_options)
+        if allow_custom:
+            options.append(CUSTOM_MODEL_SENTINEL)
+            if env_model and env_model not in model_options:
+                default_index = options.index(CUSTOM_MODEL_SENTINEL)
+            else:
+                default_index = options.index(env_model) if env_model in options else 0
+        else:
+            default_index = options.index(env_model) if env_model in options else 0
+        choice = st.selectbox(
+            "Generation Model",
+            options,
+            index=default_index,
+            key=f"{widget_ns}_select",
+        )
+        if choice == CUSTOM_MODEL_SENTINEL:
+            custom_key = f"{widget_ns}_custom"
+            if custom_key not in st.session_state:
+                st.session_state[custom_key] = env_model or ""
+            typed = st.text_input(
+                "Model id",
+                placeholder="e.g. gpt-4o",
+                key=custom_key,
+            )
+            return typed.strip() or None
+        return choice
+    if allow_custom:
+        typed_key = f"{widget_ns}_typed"
+        if typed_key not in st.session_state:
+            st.session_state[typed_key] = env_model or ""
+        typed = st.text_input(
+            "Generation Model",
+            placeholder="Type a model id",
+            key=typed_key,
+        )
+        return typed.strip() or None
+    st.selectbox(
+        "Generation Model",
+        ["— no model available —"],
+        index=0,
+        disabled=True,
+        key=f"{widget_ns}_empty",
+    )
+    return None
+
+
+def render_provider_settings(selected_provider: str):
+    """Sidebar widgets: discover local models or ask for a cloud API key + model."""
+    env_model = os.getenv("LLM_MODEL_NAME")
+    api_key = None
+    model_options = []
+    allow_custom = selected_provider in CLOUD_PROVIDERS
+    caption = None
+    error = None
+
+    if selected_provider == "LMSTUDIO":
+        try:
+            discovered = get_lm_studio_loaded_llm_models()
+            if discovered:
+                model_options = discovered
+                caption = f"Select a chat model currently loaded in LM Studio at {lm_studio_origin()}."
+            else:
+                error = lm_studio_no_model_message()
+        except Exception as exc:
+            error = (
+                f"Could not reach LM Studio at {lm_studio_origin()}. {exc}\n"
+                "Start the server with `lms server start` and load a model."
+            )
+
+    elif selected_provider == "OLLAMA":
+        try:
+            discovered = get_ollama_llm_models()
+            if discovered:
+                model_options = discovered
+                caption = f"Select a model pulled in Ollama at {ollama_origin()}."
+            else:
+                error = ollama_no_model_message()
+        except Exception as exc:
+            error = str(exc) or ollama_unreachable_message()
+
+    elif selected_provider in CLOUD_PROVIDERS:
+        env_name = api_key_env_name(selected_provider)
+        default_key = os.getenv(env_name, "") if env_name else ""
+        if selected_provider == "GEMINI" and not default_key:
+            default_key = os.getenv("GOOGLE_API_KEY", "")
+        widget_key = f"{selected_provider}_api_key"
+        if widget_key not in st.session_state:
+            st.session_state[widget_key] = default_key
+        key_labels = {
+            "OPENAI": "OpenAI API key",
+            "ANTHROPIC": "Anthropic (Claude) API key",
+            "GEMINI": "Gemini API key",
+        }
+        api_key = st.text_input(
+            key_labels[selected_provider],
+            type="password",
+            key=widget_key,
+            help=(
+                "Required to list models and make calls. Kept for this session only "
+                f"unless {env_name} is set in .env."
+            ),
+        ).strip()
+        if not api_key:
+            error = missing_api_key_message(selected_provider)
+        else:
+            try:
+                model_options = list_cloud_chat_models(selected_provider, api_key)
+                if model_options:
+                    caption = "Select which model to use for SQL generation."
+                else:
+                    error = (
+                        f"No chat models were returned by {PROVIDER_DISPLAY[selected_provider]}. "
+                        "Type a model id below."
+                    )
+            except Exception as exc:
+                error = str(exc)
+                caption = "Could not list models automatically. Type a model id below."
+
+    if error:
+        st.error(error)
+    if caption:
+        st.caption(caption)
+
+    selected_model = _select_model(
+        model_options,
+        env_model,
+        allow_custom=allow_custom and bool(api_key),
+        widget_ns=selected_provider.lower(),
+    )
+    return selected_model, api_key or None
 
 # =====================================================================
 # UI CONFIGURATION & CUSTOM STYLING
@@ -72,36 +229,19 @@ with st.sidebar:
     st.markdown("### 🔧 Model Configuration Panel")
     
     # Dynamic runtime options for model agnosticism
-    provider_options = ["OLLAMA", "OPENAI", "ANTHROPIC", "GEMINI"]
-    env_provider = os.getenv("LLM_PROVIDER", "ollama").upper()
+    provider_options = ["LMSTUDIO", "OLLAMA", "OPENAI", "ANTHROPIC", "GEMINI"]
+    env_provider = os.getenv("LLM_PROVIDER", "lmstudio").upper().replace("-", "").replace("_", "").replace(" ", "")
     if env_provider not in provider_options:
         provider_options.append(env_provider)
         
     selected_provider = st.selectbox(
-        "LLM Provider", 
-        provider_options, 
-        index=provider_options.index(env_provider)
+        "LLM Provider",
+        provider_options,
+        index=provider_options.index(env_provider),
+        format_func=lambda p: PROVIDER_DISPLAY.get(p, p),
     )
-    
-    # Auto-populate target models based on provider selection
-    if selected_provider == "OPENAI":
-        model_options = ["gpt-4o", "gpt-4o-mini", "o1-mini"]
-    elif selected_provider == "ANTHROPIC":
-        model_options = ["claude-3-5-sonnet-20240620", "claude-3-opus-20240229"]
-    elif selected_provider == "GEMINI":
-        model_options = ["gemini-1.5-flash", "gemini-1.5-pro"]
-    else:
-        model_options = ["qwen3:4b", "gemma4:e2b", "llama3"]
-        
-    env_model = os.getenv("LLM_MODEL_NAME", model_options[0])
-    if env_model not in model_options:
-        model_options.insert(0, env_model)
-        
-    selected_model = st.selectbox(
-        "Generation Model", 
-        model_options, 
-        index=model_options.index(env_model)
-    )
+
+    selected_model, provider_api_key = render_provider_settings(selected_provider)
     
     max_retries = st.slider("Max Retries for LLM Auto-Fix", 1, 5, 3)
     st.markdown("---")
@@ -154,9 +294,29 @@ with col2:
     )
     col_btn1, col_btn2, col_btn3 = st.columns([2, 3, 2])
     with col_btn2:
-        run_btn = st.button("🚀 Analyze Data", type="primary", use_container_width=True)
+        run_btn = st.button(
+            "🚀 Analyze Data",
+            type="primary",
+            use_container_width=True,
+            disabled=(
+                not selected_model
+                or (selected_provider in CLOUD_PROVIDERS and not provider_api_key)
+            ),
+        )
 
 if run_btn and question:
+    if selected_provider == "LMSTUDIO" and not selected_model:
+        st.error(lm_studio_no_model_message())
+        st.stop()
+    if selected_provider == "OLLAMA" and not selected_model:
+        st.error(ollama_no_model_message())
+        st.stop()
+    if selected_provider in CLOUD_PROVIDERS and not provider_api_key:
+        st.error(missing_api_key_message(selected_provider))
+        st.stop()
+    if not selected_model:
+        st.error("Select a generation model first.")
+        st.stop()
     st.markdown("---")
     with st.status("🧠 Synthesizing Intelligence...", expanded=True) as status:
         st.write(f"🔍 Directing prompt to {selected_provider} ({selected_model})...")
@@ -166,7 +326,8 @@ if run_btn and question:
                 max_retries=max_retries, 
                 db_url=custom_db_url,
                 provider=selected_provider,
-                model_name=selected_model
+                model_name=selected_model,
+                api_key=provider_api_key,
             )
             status.update(label="✅ Success! Intelligence Compiled.", state="complete", expanded=False)
         except Exception as e:
