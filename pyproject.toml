@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nl2sql"
+version = "1.0.0"
+description = "Natural-language SQL engine and desktop runtime"
+requires-python = ">=3.10"
+dependencies = [
+  "fastapi>=0.115.0",
+  "sqlalchemy>=2.0.0",
+  "sqlglot>=25.0.0",
+  "uvicorn[standard]>=0.30.0",
+]
+
+[project.optional-dependencies]
+app = ["streamlit>=1.30.0", "pandas>=2.0.0", "plotly>=5.18.0", "chromadb>=0.5.0"]
+providers = ["openai>=1.30.0", "anthropic>=0.34.0", "google-generativeai>=0.8.0", "ollama>=0.2.0"]
+postgres = ["psycopg2-binary>=2.9.0"]
+mysql = ["pymysql>=1.1.0"]
+mssql = ["pyodbc>=5.1.0"]
+all = ["nl2sql[app,providers,postgres,mysql,mssql]"]
+
+[project.scripts]
+nl2sql-engine = "engine.server:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["engine*"]

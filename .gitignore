@@ -30,3 +30,12 @@ Thumbs.db
 
 # 📊 App Specific / Cache
 .streamlit/
+
+# Desktop build outputs and locally generated sidecars
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/target/
+desktop/src-tauri/binaries/
+build/
+dist/
+*.spec

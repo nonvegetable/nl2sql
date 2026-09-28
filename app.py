@@ -172,61 +172,161 @@ def render_provider_settings(selected_provider: str):
     )
     return selected_model, api_key or None
 
+
+def style_chart(figure):
+    """Apply the dashboard's visual system to generated Plotly figures."""
+    figure.update_layout(
+        paper_bgcolor="#12181c",
+        plot_bgcolor="#0b1013",
+        font=dict(color="#e9edf0", family="Space Grotesk"),
+        colorway=["#d6ff4b", "#7cd7c3", "#ffb86b", "#8eb8ff"],
+        title_font=dict(color="#e9edf0", size=16),
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#89939b")),
+        margin=dict(l=20, r=20, t=55, b=20),
+        xaxis=dict(gridcolor="#263138", zerolinecolor="#354149"),
+        yaxis=dict(gridcolor="#263138", zerolinecolor="#354149"),
+    )
+    return figure
+
+
 # =====================================================================
 # UI CONFIGURATION & CUSTOM STYLING
 # =====================================================================
 st.set_page_config(
     page_title="NL2SQL Enterprise Dashboard",
-    page_icon="🌌",
+    page_icon="DB",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
 st.markdown("""
 <style>
-    .glow-text {
-        font-size: 3.5rem;
-        font-weight: 900;
-        background: -webkit-linear-gradient(45deg, #00C9FF, #92FE9D);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        text-align: center;
-        margin-bottom: 5px;
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+    :root {
+        --ink: #e9edf0;
+        --muted: #89939b;
+        --dim: #59636b;
+        --line: #2a3339;
+        --panel: #12181c;
+        --panel-raised: #182126;
+        --canvas: #0b1013;
+        --signal: #d6ff4b;
+        --signal-soft: rgba(214, 255, 75, 0.12);
     }
-    .sub-glow {
-        text-align: center;
-        color: #A0AEC0;
-        margin-bottom: 40px;
-        font-size: 1.3rem;
-        font-weight: 500;
+
+    html, body, [class*="css"] {
+        font-family: 'Space Grotesk', sans-serif;
     }
-    .metric-card {
-        background-color: #1E293B;
-        border-radius: 12px;
-        padding: 24px;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3), 0 4px 6px -2px rgba(0, 0, 0, 0.15);
-        border: 1px solid #334155;
-        text-align: center;
-        transition: transform 0.2s ease-in-out;
+
+    .stApp {
+        background: var(--canvas);
+        color: var(--ink);
+        background-image: linear-gradient(rgba(255,255,255,0.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.018) 1px, transparent 1px);
+        background-size: 32px 32px;
     }
-    .metric-card:hover {
-        transform: translateY(-5px);
+
+    [data-testid="stHeader"] { background: transparent; }
+    [data-testid="stSidebar"] {
+        background: #0e1417;
+        border-right: 1px solid var(--line);
+    }
+    [data-testid="stSidebar"] > div:first-child { padding-top: 2rem; }
+    [data-testid="stSidebar"] hr { border-color: var(--line); margin: 1.25rem 0; }
+    [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 {
+        color: var(--ink);
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+    [data-testid="stSidebar"] .stCaption { color: var(--dim); }
+
+    .brand-lockup {
+        border-left: 3px solid var(--signal);
+        padding: 0.15rem 0 0.15rem 0.9rem;
+        margin-bottom: 2.5rem;
+    }
+    .brand-lockup .eyebrow, .section-kicker {
+        color: var(--signal);
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.68rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+    }
+    .brand-lockup h1 {
+        color: var(--ink);
+        font-size: 1.15rem;
+        letter-spacing: 0.08em;
+        margin: 0.35rem 0 0;
+        text-transform: uppercase;
+    }
+    .hero {
+        border-bottom: 1px solid var(--line);
+        margin: 1.5rem 0 2.25rem;
+        padding: 1.25rem 0 1.5rem;
+    }
+    .hero h1 {
+        color: var(--ink);
+        font-size: clamp(2.2rem, 5vw, 4.8rem);
+        font-weight: 600;
+        letter-spacing: -0.04em;
+        line-height: 0.98;
+        margin: 0.45rem 0 0.9rem;
+        max-width: 780px;
+    }
+    .hero p { color: var(--muted); font-size: 1rem; margin: 0; }
+    .query-shell {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-top: 2px solid var(--signal);
+        padding: 1.25rem 1.35rem 1.4rem;
+        margin-bottom: 2rem;
     }
     .stTextInput input {
-        border-radius: 10px !important;
-        border: 1px solid #334155 !important;
-        padding: 15px !important;
+        background: #0c1114 !important;
+        border: 1px solid #354149 !important;
+        border-radius: 2px !important;
+        color: var(--ink) !important;
+        font-family: 'IBM Plex Mono', monospace;
+        font-size: 0.93rem;
+        padding: 1rem !important;
     }
+    .stTextInput input:focus { border-color: var(--signal) !important; box-shadow: 0 0 0 1px var(--signal) !important; }
+    .stButton > button {
+        background: var(--signal) !important;
+        border: 1px solid var(--signal) !important;
+        border-radius: 2px !important;
+        color: #11170b !important;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+    }
+    .stButton > button:hover { background: #edff9c !important; border-color: #edff9c !important; }
+    .stButton > button:disabled { background: #2c353a !important; border-color: #2c353a !important; color: #69747b !important; }
+    .stSelectbox > div > div, .stTextInput > div > div, .stNumberInput > div > div {
+        border-radius: 2px !important;
+        border-color: #354149 !important;
+    }
+    .stTabs [data-baseweb="tab-list"] { gap: 0; border-bottom: 1px solid var(--line); }
+    .stTabs [data-baseweb="tab"] { color: var(--muted); padding: 0.75rem 1.2rem; }
+    .stTabs [aria-selected="true"] { color: var(--signal) !important; border-bottom-color: var(--signal) !important; }
+    .stCodeBlock, [data-testid="stDataFrame"] { border: 1px solid var(--line); }
+    .metric-card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--signal);
+        padding: 1.2rem 1.35rem;
+    }
+    .metric-card h4 { color: var(--muted) !important; font-family: 'IBM Plex Mono', monospace; font-size: 0.7rem; letter-spacing: 0.1em; }
+    .metric-card h1 { color: var(--signal) !important; font-size: 2.35rem !important; }
+    [data-testid="stStatusWidget"] { border-radius: 2px; border-color: var(--line); }
 </style>
 """, unsafe_allow_html=True)
 
 # Sidebar Configuration Block
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/8342/8342886.png", width=80)
-    st.markdown("## 🌌 NL2SQL Engine")
-    st.markdown("Welcome to the **Enterprise Analytics Portal**.")
+    st.markdown('<div class="brand-lockup"><div class="eyebrow">Query / Intelligence / 01</div><h1>NL2SQL Engine</h1></div>', unsafe_allow_html=True)
     st.markdown("---")
-    st.markdown("### 🔧 Model Configuration Panel")
+    st.markdown("### Model Configuration")
     
     # Dynamic runtime options for model agnosticism
     provider_options = ["LMSTUDIO", "OLLAMA", "OPENAI", "ANTHROPIC", "GEMINI"]
@@ -245,7 +345,7 @@ with st.sidebar:
     
     max_retries = st.slider("Max Retries for LLM Auto-Fix", 1, 5, 3)
     st.markdown("---")
-    st.markdown("### 🗄️ Database Connection")
+    st.markdown("### Database Connection")
     db_method = st.radio("Connection Source", ["Use .env config", "Manual Configuration"], label_visibility="collapsed")
     
     custom_db_url = None
@@ -268,8 +368,8 @@ with st.sidebar:
                     custom_db_url = f"{dialect}{driver}://{auth}{host}:{port}/{db_name}"
         
         if custom_db_url:
-            st.caption("⚠️ Ensure credentials provided are explicitly **read-only**.")
-            if st.button("🔄 Sync Schema to Vector DB", use_container_width=True):
+            st.caption("Credentials should be explicitly read-only.")
+            if st.button("Sync schema to vector DB", use_container_width=True):
                 with st.spinner("Syncing Schema..."):
                     try:
                         sync_database_schema(custom_db_url)
@@ -278,31 +378,26 @@ with st.sidebar:
                         st.error(f"Sync failed: {e}")
 
     st.markdown("---")
-    st.caption("© 2026 AI Analytics Inc.")
+    st.caption("SYSTEM BUILD 2026.09 / AI ANALYTICS")
 
 # Header Layout
-st.markdown('<p class="glow-text">Next-Gen Database Intelligence</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-glow">Ask database queries in natural language and generate reports instantly.</p>', unsafe_allow_html=True)
+st.markdown('<div class="hero"><div class="section-kicker">Natural language query interface</div><h1>Database intelligence,<br>without the friction.</h1><p>Translate intent into executable SQL, validated results, and decision-ready visualizations.</p></div>', unsafe_allow_html=True)
 
 # Input Section
 col1, col2, col3 = st.columns([1, 6, 1])
 with col2:
-    question = st.text_input(
-        "Ask a question",
-        placeholder="✨ e.g., 'Create a report based on revenue based on payment types'",
-        label_visibility="collapsed"
+    st.markdown('<div class="query-shell"><div class="section-kicker">Input / Ask the warehouse</div>', unsafe_allow_html=True)
+    question = st.text_input("Ask a question", placeholder="e.g. Show revenue by payment type for the last quarter", label_visibility="collapsed")
+    run_btn = st.button(
+        "Analyze data",
+        type="primary",
+        use_container_width=True,
+        disabled=(
+            not selected_model
+            or (selected_provider in CLOUD_PROVIDERS and not provider_api_key)
+        ),
     )
-    col_btn1, col_btn2, col_btn3 = st.columns([2, 3, 2])
-    with col_btn2:
-        run_btn = st.button(
-            "🚀 Analyze Data",
-            type="primary",
-            use_container_width=True,
-            disabled=(
-                not selected_model
-                or (selected_provider in CLOUD_PROVIDERS and not provider_api_key)
-            ),
-        )
+    st.markdown('</div>', unsafe_allow_html=True)
 
 if run_btn and question:
     if selected_provider == "LMSTUDIO" and not selected_model:
@@ -318,8 +413,8 @@ if run_btn and question:
         st.error("Select a generation model first.")
         st.stop()
     st.markdown("---")
-    with st.status("🧠 Synthesizing Intelligence...", expanded=True) as status:
-        st.write(f"🔍 Directing prompt to {selected_provider} ({selected_model})...")
+    with st.status("Synthesizing query", expanded=True) as status:
+        st.write(f"Routing request to {selected_provider} / {selected_model}...")
         try:
             result_payload = execute_sql_with_self_correction(
                 question, 
@@ -329,10 +424,10 @@ if run_btn and question:
                 model_name=selected_model,
                 api_key=provider_api_key,
             )
-            status.update(label="✅ Success! Intelligence Compiled.", state="complete", expanded=False)
+            status.update(label="Query compiled successfully", state="complete", expanded=False)
         except Exception as e:
-            status.update(label="❌ Failed to synthesize data.", state="error", expanded=False)
-            st.error(f"Application crash detected: {str(e)}")
+            status.update(label="Query synthesis failed", state="error", expanded=False)
+            st.error(f"Application error: {str(e)}")
             st.stop()
             
     if "error" in result_payload:
@@ -344,14 +439,14 @@ if run_btn and question:
         sql_query = result_payload.get("sql", "N/A")
         data_rows = result_payload.get("results", [])
         
-        tab1, tab2, tab3 = st.tabs(["📊 Executive Visualization", "📋 Raw Data", "💻 Underlying SQL"])
+        tab1, tab2, tab3 = st.tabs(["Visualization", "Raw data", "Generated SQL"])
         
         with tab3:
-            st.markdown("### 🧩 Generated PostgreSQL")
+            st.markdown("### Generated SQL")
             st.code(sql_query, language="sql")
             
         with tab2:
-            st.markdown("### 📋 Acquired Dataset")
+            st.markdown("### Result set")
             if not data_rows:
                 st.info("The query executed perfectly, but returned 0 rows.")
             else:
@@ -383,7 +478,7 @@ if run_btn and question:
                 try:
                     # Case A: Single numeric metrics
                     if len(df) == 1 and len(numeric_cols) > 0:
-                        st.markdown("### 📈 Key Metrics")
+                        st.markdown("### Key metrics")
                         cols = st.columns(len(numeric_cols))
                         for i, col in enumerate(numeric_cols):
                             val = df[col].iloc[0]
@@ -398,7 +493,7 @@ if run_btn and question:
                     # Case B: Time-series curve reports
                     elif len(date_cols) > 0 and len(numeric_cols) > 0:
                         x_axis = date_cols[0]
-                        fig = px.area(df, x=x_axis, y=numeric_cols, title=f"Performance Trend over {x_axis}", template="plotly_dark")
+                        fig = style_chart(px.area(df, x=x_axis, y=numeric_cols, title=f"Performance Trend over {x_axis}", template="plotly_dark"))
                         fig.update_traces(mode="lines+markers", fill='tozeroy', line=dict(width=3))
                         st.plotly_chart(fig, use_container_width=True)
                         
@@ -411,21 +506,21 @@ if run_btn and question:
                         if df[x_axis].nunique() <= 7 and len(numeric_cols) == 1:
                             v_col1, v_col2 = st.columns(2)
                             with v_col1:
-                                fig_bar = px.bar(df, x=x_axis, y=y_axis, title=f"{y_axis.title()} by {x_axis.title()}", template="plotly_dark", color=x_axis)
+                                fig_bar = style_chart(px.bar(df, x=x_axis, y=y_axis, title=f"{y_axis.title()} by {x_axis.title()}", template="plotly_dark", color=x_axis))
                                 st.plotly_chart(fig_bar, use_container_width=True)
                             with v_col2:
-                                fig_pie = px.pie(df, names=x_axis, values=y_axis, hole=0.4, title=f"{y_axis.title()} Distribution Mix", template="plotly_dark")
+                                fig_pie = style_chart(px.pie(df, names=x_axis, values=y_axis, hole=0.4, title=f"{y_axis.title()} Distribution Mix", template="plotly_dark"))
                                 fig_pie.update_traces(textposition='inside', textinfo='percent+label')
                                 st.plotly_chart(fig_pie, use_container_width=True)
                         else:
-                            fig = px.bar(df, x=x_axis, y=numeric_cols, title=f"{', '.join(numeric_cols).title()} Grouped by {x_axis.title()}", barmode='group', template="plotly_dark")
+                            fig = style_chart(px.bar(df, x=x_axis, y=numeric_cols, title=f"{', '.join(numeric_cols).title()} Grouped by {x_axis.title()}", barmode='group', template="plotly_dark"))
                             st.plotly_chart(fig, use_container_width=True)
                         
                     # Case D: Scatter Plot correlation reports
                     elif len(numeric_cols) >= 2:
-                        fig = px.scatter(df, x=numeric_cols[0], y=numeric_cols[1], title=f"Correlation: {numeric_cols[1].title()} vs {numeric_cols[0].title()}", template="plotly_dark")
+                        fig = style_chart(px.scatter(df, x=numeric_cols[0], y=numeric_cols[1], title=f"Correlation: {numeric_cols[1].title()} vs {numeric_cols[0].title()}", template="plotly_dark"))
                         st.plotly_chart(fig, use_container_width=True)
                     else:
-                        st.info("✨ Data compiled perfectly. Check the 'Raw Data' tab for table reports.")
+                        st.info("Data compiled successfully. Open the Raw data tab for the tabular result.")
                 except Exception as e:
                     st.warning(f"Could not render automated visual reports: {e}")

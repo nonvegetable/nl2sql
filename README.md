@@ -4,6 +4,12 @@ A robust, database-agnostic data pipeline that translates natural language quest
 
 This project is designed to be **model-agnostic** and **database-agnostic**. The default local stack is **LM Studio** (OpenAI-compatible API on `localhost:1234`). Ollama, OpenAI, Anthropic (Claude), and Gemini remain fully supported. The application supports both the built-in mock PostgreSQL database and your own PostgreSQL/MySQL databases, whether hosted locally or remotely.
 
+## Production application path
+
+The repository now contains a Tauri 2 desktop shell in `desktop/` and a versioned local engine API in `engine/`. The existing Streamlit dashboard remains available as a migration/demo surface. The engine validates every query with SQLGlot before execution, uses pooled SQLAlchemy connections, and exposes `/api/v1` health, connection, schema, query, and history endpoints.
+
+Run the engine with `uvicorn engine.api:app --host 127.0.0.1 --port 47821`, then start the desktop frontend with `cd desktop && npm install && npm run dev`. See `docs/architecture.md`, `docs/security.md`, and `docs/releasing.md` for the current boundaries and packaging workflow. The desktop sidecar, secure credential storage, signed updates, and cross-platform CI are release work still to be completed; they are not represented as finished features here.
+
 ---
 
 # Features
