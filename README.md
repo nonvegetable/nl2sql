@@ -1,4 +1,4 @@
-# NL2SQL Enterprise Engine (with Agentic Self-Correction)
+# NL2SQL v0.1.0-alpha
 
 A robust, database-agnostic data pipeline that translates natural language questions into executable SQL queries, runs them securely against a relational database, and automatically visualizes the results.
 
@@ -8,7 +8,25 @@ This project is designed to be **model-agnostic** and **database-agnostic**. The
 
 The repository now contains a Tauri 2 desktop shell in `desktop/` and a versioned local engine API in `engine/`. The existing Streamlit dashboard remains available as a migration/demo surface. The engine validates every query with SQLGlot before execution, uses pooled SQLAlchemy connections, and exposes `/api/v1` health, connection, schema, query, and history endpoints.
 
-Run the engine with `uvicorn engine.api:app --host 127.0.0.1 --port 47821`, then start the desktop frontend with `cd desktop && npm install && npm run dev`. See `docs/architecture.md`, `docs/security.md`, and `docs/releasing.md` for the current boundaries and packaging workflow. The desktop sidecar, secure credential storage, signed updates, and cross-platform CI are release work still to be completed; they are not represented as finished features here.
+## Alpha installation and development
+
+The alpha release targets Linux x64 (AppImage/DEB), Windows x64 (NSIS), and macOS Intel/Apple Silicon (DMG). SQLite is usable without a database server. PostgreSQL, MySQL, MariaDB, and SQL Server use their optional SQLAlchemy drivers. Oracle and BigQuery are planned but not production-tested in this alpha.
+
+For development:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e ".[all]"
+uvicorn engine.api:app --host 127.0.0.1 --port 47821
+cd desktop
+npm ci
+npm run dev
+```
+
+Database passwords are kept in the platform credential store through `keyring`; SQLite metadata contains only non-secret connection information. Generated and manually edited SQL passes through SQLGlot read-only validation, single-statement checks, row limits, and bounded response materialization before execution.
+
+Run tests with `python -m pytest -q`. Build the Linux desktop package with the commands in [docs/releasing.md](docs/releasing.md). Live LLM generation requires a configured OpenAI, Anthropic, Gemini, Ollama, LM Studio, or compatible provider. Model weights are not bundled.
 
 ---
 

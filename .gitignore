@@ -30,6 +30,9 @@ Thumbs.db
 
 # 📊 App Specific / Cache
 .streamlit/
+.pytest_cache/
+.coverage
+*.log
 
 # Desktop build outputs and locally generated sidecars
 desktop/node_modules/

@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            suffix: exe
+          - name: macOS-x64
+            os: macos-13
+            target: x86_64-apple-darwin
+            suffix: dmg
+          - name: macOS-arm64
+            os: macos-14
+            target: aarch64-apple-darwin
+            suffix: dmg
+          - name: Linux-x64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            suffix: AppImage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
+      - name: Install Linux Tauri dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Test engine
+        run: python -m pip install -e ".[all]" && python -m pytest -q
+      - name: Apply tag version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          package_version="${version%%-*}"
+          npm pkg set version="$package_version" --prefix desktop
+          sed -i.bak -E "s/^version = \".*\"/version = \"$package_version\"/" desktop/src-tauri/Cargo.toml
+          sed -i.bak -E "s/\"version\": \"[^\"]+\"/\"version\": \"$package_version\"/" desktop/src-tauri/tauri.conf.json
+          rm -f desktop/src-tauri/Cargo.toml.bak desktop/src-tauri/tauri.conf.json.bak
+      - name: Build sidecar
+        shell: bash
+        run: |
+          python -m pip install pyinstaller
+          pyinstaller --clean --onefile --name nl2sql-engine engine/server.py
+          mkdir -p desktop/src-tauri/binaries
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            cp dist/nl2sql-engine.exe "desktop/src-tauri/binaries/nl2sql-engine-${{ matrix.target }}.exe"
+          else
+            cp dist/nl2sql-engine "desktop/src-tauri/binaries/nl2sql-engine-${{ matrix.target }}"
+          fi
+      - name: Build desktop
+        working-directory: desktop
+        run: npm ci && npm run tauri build -- --target ${{ matrix.target }}
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          release_name="${GITHUB_REF_NAME}"
+          mkdir release
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            artifact=$(find desktop/src-tauri/target -type f -path '*/bundle/nsis/*.exe' | head -1)
+          elif [[ "${{ runner.os }}" == "macOS" ]]; then
+            artifact=$(find desktop/src-tauri/target -type f -path '*/bundle/dmg/*.dmg' | head -1)
+          else
+            find desktop/src-tauri/target -type f -path '*/bundle/appimage/*.AppImage' -exec cp {} release/ \;
+            find desktop/src-tauri/target -type f -path '*/bundle/deb/*.deb' -exec cp {} release/ \;
+          fi
+          if [[ -n "${artifact:-}" ]]; then cp "$artifact" release/; fi
+          test -n "$(find release -type f | head -1)"
+          for file in release/*; do mv "$file" "release/NL2SQL-${release_name}-${{ matrix.name }}.${file##*.}"; done
+          if command -v sha256sum >/dev/null; then sha256sum release/* > release/SHA256SUMS.txt; else shasum -a 256 release/* > release/SHA256SUMS.txt; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NL2SQL-${{ matrix.name }}
+          path: release/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          body: |
+            # NL2SQL v0.1.0-alpha
+
+            Alpha release for testing and feedback.
+
+            Highlights:
+            - Natural-language SQL generation with SQLGlot validation
+            - Persistent database connections and query history
+            - SQLite, PostgreSQL, MySQL/MariaDB, and SQL Server architecture
+            - Tauri desktop application with a bundled Python engine
+
+            Oracle and BigQuery are not production-tested in this alpha. Code signing, automatic updates, and model downloads are not configured.

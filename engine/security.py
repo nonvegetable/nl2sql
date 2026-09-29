@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 
 import sqlglot
 from sqlglot import exp
@@ -21,6 +22,9 @@ class ValidatedSQL:
 
 
 _READ_STATEMENTS = (exp.Select, exp.Union, exp.Intersect, exp.Except, exp.With)
+_FORBIDDEN_EXPRESSIONS = (exp.Insert, exp.Update, exp.Delete, exp.Drop, exp.Alter, exp.Create, exp.Grant, exp.Revoke, exp.Execute, exp.Command, exp.Set)
+_SUSPICIOUS_COMMENT = re.compile(r"(?:--[^\n]*|/\*.*?\*/)", re.DOTALL)
+_MUTATING_WORD = re.compile(r"\b(?:insert|update|delete|drop|alter|create|truncate|grant|revoke|execute|exec)\b", re.IGNORECASE)
 
 
 def _table_names(expression: exp.Expression) -> tuple[str, ...]:
@@ -49,6 +53,9 @@ def validate_read_query(
         raise SQLSecurityError("SQL query is empty.")
     if max_rows < 1:
         raise ValueError("max_rows must be greater than zero.")
+    for comment in _SUSPICIOUS_COMMENT.findall(candidate):
+        if _MUTATING_WORD.search(comment):
+            raise SQLSecurityError("Comments contain a forbidden mutation keyword.")
 
     try:
         statements = sqlglot.parse(candidate, read=dialect)
@@ -60,7 +67,7 @@ def validate_read_query(
     expression = statements[0]
     if not isinstance(expression, _READ_STATEMENTS):
         raise SQLSecurityError("Only read-only SELECT statements are allowed.")
-    if any(list(expression.find_all(node)) for node in (exp.Insert, exp.Update, exp.Delete, exp.Drop, exp.Alter, exp.Create)):
+    if any(list(expression.find_all(node)) for node in _FORBIDDEN_EXPRESSIONS):
         raise SQLSecurityError("The query contains a mutating or DDL statement.")
 
     bounded = expression if expression.args.get("limit") else expression.limit(max_rows)

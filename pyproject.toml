@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nl2sql"
-version = "1.0.0"
+version = "0.1.0"
 description = "Natural-language SQL engine and desktop runtime"
 requires-python = ">=3.10"
 dependencies = [
@@ -12,6 +12,8 @@ dependencies = [
   "sqlalchemy>=2.0.0",
   "sqlglot>=25.0.0",
   "uvicorn[standard]>=0.30.0",
+  "keyring>=25.0.0",
+  "platformdirs>=4.0.0",
 ]
 
 [project.optional-dependencies]
