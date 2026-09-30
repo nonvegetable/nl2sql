@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from engine.api import app, history, registry
@@ -30,3 +33,14 @@ def test_unknown_query_returns_not_found():
     client = TestClient(app)
 
     assert client.get("/api/v1/query/missing").status_code == 404
+
+
+def test_desktop_csp_allows_localhost_engine_ports_without_fixed_port():
+    config = json.loads(Path("desktop/src-tauri/tauri.conf.json").read_text())
+    csp = config["app"]["security"]["csp"]
+
+    assert "connect-src" in csp
+    assert "http://127.0.0.1" in csp
+    assert "http://localhost" in csp
+    assert "http://127.0.0.1:47821" not in csp
+    assert "http://localhost:*" in csp or "http://127.0.0.1:*" in csp

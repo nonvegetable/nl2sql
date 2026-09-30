@@ -18,7 +18,14 @@ Local sidecar example:
 
 ```bash
 python -m pip install pyinstaller
-pyinstaller --clean --onefile --name nl2sql-engine engine/server.py
+pyinstaller --clean --onefile --name nl2sql-engine \
+	--hidden-import sqlglot.dialects.sqlite \
+	--hidden-import sqlglot.dialects.postgres \
+	--hidden-import sqlglot.dialects.mysql \
+	--hidden-import sqlglot.dialects.mssql \
+	--hidden-import sqlglot.dialects.oracle \
+	--hidden-import sqlglot.dialects.bigquery \
+	engine/server.py
 mkdir -p desktop/src-tauri/binaries
 cp dist/nl2sql-engine desktop/src-tauri/binaries/nl2sql-engine-$(rustc -vV | sed -n 's/^host: //p')
 cd desktop && npm run tauri build

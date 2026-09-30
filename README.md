@@ -1,20 +1,81 @@
-# NL2SQL v0.1.0-alpha
+# NL2SQL
+Natural-language database querying desktop application.
 
-A robust, database-agnostic data pipeline that translates natural language questions into executable SQL queries, runs them securely against a relational database, and automatically visualizes the results.
+NL2SQL is a desktop-first interface for asking natural-language questions against SQLite or PostgreSQL databases, validating the resulting SQL, and executing read-only queries with a controlled results experience. The application runs a local Python engine behind a Tauri shell, keeps database credentials in the OS credential store, and only exposes localhost communication paths for the runtime boundary.
 
-This project is designed to be **model-agnostic** and **database-agnostic**. The default local stack is **LM Studio** (OpenAI-compatible API on `localhost:1234`). Ollama, OpenAI, Anthropic (Claude), and Gemini remain fully supported. The application supports both the built-in mock PostgreSQL database and your own PostgreSQL/MySQL databases, whether hosted locally or remotely.
+## What the application does
 
-## Production application path
+- Converts natural-language questions to SQL with a schema-aware retrieval pipeline
+- Validates every generated or edited SQL statement with SQLGlot before execution
+- Executes read-only queries against the selected database connection
+- Keeps a local history of successful and failed queries with metadata
+- Synchronizes schema information for tables, columns, keys, and foreign relationships
+- Lets users review and edit generated SQL before running it
+- Uses secure storage for passwords and avoids persisting plaintext database credentials
 
-The repository now contains a Tauri 2 desktop shell in `desktop/` and a versioned local engine API in `engine/`. The existing Streamlit dashboard remains available as a migration/demo surface. The engine validates every query with SQLGlot before execution, uses pooled SQLAlchemy connections, and exposes `/api/v1` health, connection, schema, query, and history endpoints.
+## Desktop architecture
 
-## Alpha installation and development
+The current desktop beta is built as:
 
-The alpha release targets Linux x64 (AppImage/DEB), Windows x64 (NSIS), and macOS Intel/Apple Silicon (DMG). SQLite is usable without a database server. PostgreSQL, MySQL, MariaDB, and SQL Server use their optional SQLAlchemy drivers. Oracle and BigQuery are planned but not production-tested in this alpha.
+- Tauri shell in the `desktop/` directory
+- Local Python engine in `engine/`
+- SQLite metadata store with platform-managed data directories
+- SQLAlchemy-backed adapters for relational databases
+- Safe read-only query validation before execution
 
-For development:
+The engine is intentionally localhost-only in production. The front end communicates with the actual runtime port allocated by the desktop app, not a fixed port assumption.
+
+## Supported platforms
+
+The beta release targets:
+
+- Linux x64
+- Windows x64
+- macOS Intel (x64)
+- macOS Apple Silicon (arm64)
+
+## Supported databases
+
+Tested in this repository at the beta stage:
+
+- SQLite
+- PostgreSQL
+
+Architecturally supported but not fully beta-validated in the CI matrix:
+
+- MySQL
+- MariaDB
+- SQL Server
+
+Planned:
+
+- Oracle
+- BigQuery
+
+## Supported LLM providers
+
+The application supports provider-neutral SQL generation through the configured local or cloud model stack, including:
+
+- OpenAI
+- Anthropic
+- Gemini
+- Ollama
+- LM Studio
+- OpenAI-compatible endpoints
+
+The application does not bundle model weights and expects a provider or local runtime to already be available.
+
+## Installation
+
+### Desktop app
+
+Download the beta release artifacts from the GitHub Releases page for your platform.
+
+### Local development
 
 ```bash
+git clone https://github.com/nonvegetable/nl2sql.git
+cd nl2sql
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -e ".[all]"
@@ -24,200 +85,107 @@ npm ci
 npm run dev
 ```
 
-Database passwords are kept in the platform credential store through `keyring`; SQLite metadata contains only non-secret connection information. Generated and manually edited SQL passes through SQLGlot read-only validation, single-statement checks, row limits, and bounded response materialization before execution.
+## Quick start
 
-Run tests with `python -m pytest -q`. Build the Linux desktop package with the commands in [docs/releasing.md](docs/releasing.md). Live LLM generation requires a configured OpenAI, Anthropic, Gemini, Ollama, LM Studio, or compatible provider. Model weights are not bundled.
+1. Launch the desktop app.
+2. Add a database connection.
+3. Test and save the connection.
+4. Sync the schema.
+5. Ask a question in natural language.
+6. Review the generated SQL.
+7. Execute the query.
+8. Inspect history and results.
 
----
+## Database connection
 
-# Features
+The app supports SQLite and PostgreSQL as the beta-validated paths. The connection wizard accepts either a direct SQLAlchemy URL or field-based connection details such as host, port, username, password, database, schema, and SSL settings.
 
-## Multi-LLM Routing
+Passwords are kept in the platform credential store and are never persisted in plaintext in the SQLite metadata database. The app never logs credentials and should not expose raw connection URLs containing secrets in the UI or history.
 
-Instantly switch between local AI models (LM Studio by default, or Ollama) and cloud providers (OpenAI, Claude, Gemini) directly from the dashboard. Local runtimes list the models actually available on the machine. Cloud providers ask for an API key, then list that account's chat models so you can pick one.
+## Schema synchronization
 
-## Agentic Self-Correction Loop
+Schema sync collects:
 
-If the LLM generates invalid SQL, the backend automatically:
+- tables
+- columns
+- types
+- nullability
+- primary keys
+- foreign keys
+- indexes
+- views when supported
+- catalog and schema metadata when available
 
-1. Executes the query safely.
-2. Catches any SQL exceptions.
-3. Extracts the error message.
-4. Sends the error back to the LLM.
-5. Generates a corrected SQL query.
-6. Retries execution automatically.
+The sync process stores a schema fingerprint and keeps a lightweight per-connection schema catalog. It also removes stale entries when objects are deleted or renamed.
 
-This significantly improves reliability while reducing manual intervention.
+## Asking questions
 
-## Dynamic Schema Vectorization
+The engine retrieves relevant schema context using lexical metadata and semantic retrieval when available. The question and matched schema are then passed to the configured model for SQL generation. Generated SQL is validated before it is executed.
 
-The application uses **ChromaDB** to semantically index your database schema.
+## SQL review
 
-Instead of exposing the entire schema to the LLM, only the most relevant tables and columns are retrieved based on the user's question, which:
+The generated SQL is visible in the SQL editor before execution. You can inspect, revise, or re-run it manually. The app does not execute arbitrary SQL until validation succeeds.
 
-* Reduces token usage
-* Improves SQL accuracy
-* Minimizes hallucinations
-* Scales to enterprise-sized databases
+## Query execution
 
-## Bring Your Own Database (BYOD)
+The SQL validation path is intentionally read-only:
 
-Connect to any PostgreSQL or MySQL database (local or remote) directly from the Streamlit UI without modifying the source code.
+- SELECT, WITH, UNION, INTERSECT, and EXCEPT are allowed
+- DML and DDL are rejected
+- multiple statements are rejected
+- comments are scanned for destructive keywords
+- SQLGlot parsing is required before execution
 
----
+The application keeps row limits and response-size bounds to avoid unbounded result materialization.
 
-# Getting Started (Docker Deployment)
+## Security model
 
-The easiest and most reliable way to run the project is with Docker.
+The application is designed around a read-only SQL boundary. The engine rejects mutation attempts such as INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE, GRANT, REVOKE, MERGE, EXEC, and multiple statements, and it enforces the validation path through SQLGlot AST checks.
 
-The included `docker-compose.yml` starts:
+Use SELECT-only database credentials in production and never run the app with broader write privileges than required.
 
-* Streamlit frontend
-* Python backend
-* PostgreSQL sandbox database
+## Local models
 
-## Prerequisites
+The app can use local runtimes such as LM Studio or Ollama, or a configured cloud provider. Model availability and status depend on the selected runtime and authentication configuration.
 
-* Docker Desktop installed and running
-* **LM Studio** installed and serving a local model (default for this project)
-* *(Optional)* Ollama, if you prefer that local runtime instead of LM Studio
+## Development
 
----
+- Python engine: `engine/`
+- Desktop frontend: `desktop/`
+- Desktop config: `desktop/src-tauri/`
+- Tests: `tests/`
+- Docs: `docs/`
 
-## Step 1 — Clone the Repository
-
-```bash
-git clone https://github.com/yourusername/nl2sql.git
-cd nl2sql
-```
-
----
-
-## Step 2 — Configure Environment Variables
-
-Duplicate the example environment file:
-
-```bash
-cp .env.example .env
-```
-
-Open `.env` and configure your providers.
-
-### Cloud Models
-
-You can paste an API key in the Streamlit sidebar when you select OpenAI, Claude (Anthropic), or Gemini. The dashboard then lists chat models for that key and asks which one to use. Keys stay in the current session unless you also put them in `.env`:
-
-```text
-OPENAI_API_KEY=
-ANTHROPIC_API_KEY=
-GEMINI_API_KEY=
-```
-
-### Local LM Studio (Default)
-
-No API keys are required. Start the local server and load any chat model you already have installed:
+## Testing
 
 ```bash
-lms server start
-lms load google/gemma-4-e2b
+python -m pytest -q
+cd desktop
+npm ci
+npm run build
+cd src-tauri
+cargo check
 ```
 
-The dashboard queries port 1234 and uses **whatever chat model is currently loaded**. If nothing is loaded, it shows an error telling you to load one. Embedding models (like nomic-embed) are not listed as generation models.
+## Building
 
-Ensure the following values are set:
+The repo includes CI and release workflows for building the sidecar and packaging the desktop app. The Linux sidecar is built with PyInstaller and bundled into the Tauri app.
 
-```text
-LLM_PROVIDER=lmstudio
-LM_STUDIO_BASE_URL=http://localhost:1234/v1
-EMBEDDING_PROVIDER=lmstudio
-EMBEDDING_MODEL_NAME=text-embedding-nomic-embed-text-v1.5
-```
+## Known limitations
 
-`LLM_MODEL_NAME` is optional. If you set it, it is only used when that model is already loaded; otherwise the loaded model on port 1234 is used.
+- This is a beta; it is meant for testing and feedback
+- Oracle and BigQuery are not fully tested or supported in this release
+- Code signing and notarization are not configured
+- Automatic application updates are not configured
+- Local model availability depends on external services or providers
 
-Schema embeddings use LM Studio's bundled **nomic-embed-text-v1.5**. After switching from Ollama embeddings, re-run **Sync Schema to Vector DB** so Chroma is rebuilt with the new embedding space.
+## Roadmap
 
-### Local Ollama (optional)
+Planned work includes broader integration coverage for MySQL/MariaDB and SQL Server, more robust provider management, and expanded schema and query debugging automation.
 
-Switch the provider to **Ollama** in the sidebar. The dashboard queries `http://localhost:11434` (or `OLLAMA_HOST`) and asks which pulled chat model to use. If Ollama is not running, or no chat model is pulled, it shows an error telling you what to do:
+## Legacy Streamlit surface
 
-```bash
-ollama serve
-ollama pull llama3.2
-```
-
-Optional `.env` values:
-
-```text
-LLM_PROVIDER=ollama
-OLLAMA_HOST=http://localhost:11434
-EMBEDDING_PROVIDER=ollama
-EMBEDDING_MODEL_NAME=mxbai-embed-large
-```
-
----
-
-## Step 3 — Launch the Application
-
-Build and start the containers:
-
-```bash
-docker-compose up --build
-```
-
-Once everything starts successfully, open:
-
-```text
-http://localhost:8501
-```
-
----
-
-# Using Your Own Database
-
-By default, Docker connects to the included PostgreSQL sandbox.
-
-You can instead connect to your own database hosted:
-
-* Locally
-* AWS RDS
-* Neon
-* Supabase
-* DigitalOcean
-* Azure
-* Google Cloud SQL
-* Any VPS
-
-The backend uses **SQLAlchemy** with the appropriate database driver (e.g., `psycopg2`) to establish a secure TCP/IP connection.
-
----
-
-## 1. Configure Network Access
-
-For remote databases:
-
-* Allow incoming connections from the machine running this application.
-* Whitelist the IP address in your firewall or cloud security group.
-* If SSL is required, append:
-
-```text
-?sslmode=require
-```
-
-to your PostgreSQL connection string.
-
----
-
-## 2. Connect Through the Dashboard
-
-Open the Streamlit sidebar and select:
-
-```
-Database Connection
-→ Manual Configuration
-```
-
-Enter:
+The repository still contains a legacy Streamlit/demo entry surface, but the supported installation and runtime path for the beta is the desktop application. The Streamlit surface is not the primary installation flow.
 
 * Host
 * Port (5432 for PostgreSQL)

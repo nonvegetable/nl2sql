@@ -82,9 +82,11 @@ history: list[dict[str, Any]] = []
 app = FastAPI(title="NL2SQL Engine", version="1.0.0", docs_url="/api/docs", redoc_url=None)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:1420", "http://127.0.0.1:1420", "tauri://localhost"],
+    allow_origins=["http://localhost", "http://127.0.0.1", "http://localhost:1420", "http://127.0.0.1:1420", "tauri://localhost"],
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
 
 

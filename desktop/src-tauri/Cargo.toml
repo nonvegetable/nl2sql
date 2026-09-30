@@ -1,6 +1,6 @@
 [package]
 name = "nl2sql-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "NL2SQL desktop application"
 authors = ["NL2SQL"]
 edition = "2021"

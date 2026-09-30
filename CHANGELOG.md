@@ -1,26 +1,25 @@
 # Changelog
 
-## v0.1.0-alpha
+## v0.2.0-beta
 
-Alpha release for testing and feedback.
+Beta desktop release for testing and feedback.
 
 ### Highlights
 
-- Tauri 2 desktop foundation with a Python sidecar engine
-- Persistent connection metadata, schema state, and query history
-- OS credential-store boundary for database passwords
-- SQLite, PostgreSQL, MySQL/MariaDB, and SQL Server adapter architecture
-- Connection wizard, schema synchronization, and SQL editing
-- Natural-language SQL generation boundary with mock/provider support
-- Connection-scoped schema retrieval and Chroma vector-store interface
-- SQLGlot read-only validation, row limits, and bounded result materialization
-- Linux, Windows, and macOS release workflow definitions
+- Desktop beta shell with real Overview, Query, Connections, Schema, History, Providers, and Settings views
+- Dynamic localhost-only engine startup with a production-safe Tauri CSP and sidecar readiness handling
+- Persistent local metadata, per-connection schema state, and query history without storing plaintext credentials
+- SQLite and PostgreSQL as the supported and tested database paths in this beta
+- Connection management with secure secret storage, test/save/delete flows, and schema synchronization
+- Deterministic schema retrieval plus lexical/metadata ranking with safe fallback when vector retrieval is unavailable
+- SQLGlot-based read-only validation, execution limits, truncation warnings, and history status tracking
+- Cross-platform GitHub Actions and packaging workflow updates for the beta release
 
 ### Known Limitations
 
-- Oracle and BigQuery are planned adapters and are not production-tested in this alpha.
-- Code signing and notarization credentials are not configured.
-- Automatic application updates are not configured.
-- A model download manager is not included; configure an external provider such as LM Studio, Ollama, OpenAI, Anthropic, or Gemini.
-- Live LLM generation requires provider configuration and credentials or a running local provider.
-- Linux packaging is locally verifiable; Windows and macOS artifacts require their respective GitHub-hosted runners.
+- MySQL/MariaDB and SQL Server are supported architecturally but are not fully covered by this beta test matrix unless the CI environment provides the services.
+- Oracle and BigQuery remain planned adapters and are not production-tested.
+- Code signing and notarization are not configured for the desktop bundles.
+- Automatic app updates are not configured.
+- Local model management is still external to the application; configure LM Studio, Ollama, or a cloud provider before live generation.
+- This beta is suitable for testing and feedback, not an unqualified production guarantee.
